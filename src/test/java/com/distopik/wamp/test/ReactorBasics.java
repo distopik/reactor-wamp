@@ -83,8 +83,8 @@ public class ReactorBasics {
 
 					@Override
 					public void onWebSocketText(String message) {
+						log.info("PAYLOAD: '" + message + "'");
 					}
-					
 				});
 			}
 		};
