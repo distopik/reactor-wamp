@@ -5,24 +5,38 @@
 	<artifactId>reactor-wamp</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 
-	<dependency>
-		<groupId>io.projectreactor</groupId>
-		<artifactId>reactor-core</artifactId>
-		<version>2.0.1.BUILD-SNAPSHOT</version>
-	</dependency>
+	<dependencies>
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-core</artifactId>
+			<version>2.0.1.BUILD-SNAPSHOT</version>
+		</dependency>
 
-	<dependency>
-		<groupId>io.projectreactor</groupId>
-		<artifactId>reactor-stream</artifactId>
-		<version>2.0.1.BUILD-SNAPSHOT</version>
-	</dependency>
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-stream</artifactId>
+			<version>2.0.1.BUILD-SNAPSHOT</version>
+		</dependency>
 
-	<dependency>
-		<groupId>io.projectreactor</groupId>
-		<artifactId>reactor-net</artifactId>
-		<version>2.0.1.BUILD-SNAPSHOT</version>
-	</dependency>
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-net</artifactId>
+			<version>2.0.1.BUILD-SNAPSHOT</version>
+		</dependency>
 
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.12</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.msgpack</groupId>
+			<artifactId>msgpack-core</artifactId>
+			<version>0.7.0-p9</version>
+		</dependency>
+	</dependencies>
+	
 	<build>
 		<plugins>
 			<plugin>
