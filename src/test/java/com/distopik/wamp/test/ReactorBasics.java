@@ -12,10 +12,13 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
+import org.eclipse.jetty.websocket.servlet.ServletUpgradeRequest;
 import org.eclipse.jetty.websocket.servlet.WebSocketServlet;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketListener;
+import org.eclipse.jetty.websocket.api.WebSocketAdapter;
 import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
+import org.eclipse.jetty.websocket.servlet.ServletUpgradeResponse;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,7 +34,7 @@ import reactor.bus.selector.Selectors;
 public class ReactorBasics {
 	private static Server server;
 	Logger log = LoggerFactory.getLogger(ReactorBasics.class);
-	
+
 	private static class Trade {
 
 	}
@@ -62,33 +65,43 @@ public class ReactorBasics {
 
 			@Override
 			public void configure(WebSocketServletFactory factory) {
-				factory.setCreator((req, resp) -> new WebSocketListener() {
+				factory.setCreator((ServletUpgradeRequest req, ServletUpgradeResponse resp) -> {
+					resp.setAcceptedSubProtocol(req.getSubProtocols().get(0));
+					
+					return new WebSocketAdapter() {
+						@Override
+						public void onWebSocketBinary(byte[] payload,
+								int offset, int len) {
+							log.info("+BYTES: '{}' @{}+{}", payload, offset, len);
+						}
 
-					@Override
-					public void onWebSocketBinary(byte[] payload, int offset, int len) {
-					}
+						@Override
+						public void onWebSocketClose(int statusCode,
+								String reason) {
+							log.info("CLOSED {} because '{}'", statusCode, reason);
+						}
 
-					@Override
-					public void onWebSocketClose(int statusCode, String reason) {
-					}
+						@Override
+						public void onWebSocketConnect(Session session) {
+							super.onWebSocketConnect(session);
+							log.info("CONNECTED {}", session
+									.getUpgradeRequest().getSubProtocols());
+						}
 
-					@Override
-					public void onWebSocketConnect(Session session) {
-						log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
-					}
+						@Override
+						public void onWebSocketError(Throwable cause) {
+							log.error("ERROR", cause);
+						}
 
-					@Override
-					public void onWebSocketError(Throwable cause) {
-					}
-
-					@Override
-					public void onWebSocketText(String message) {
-						log.info("PAYLOAD: '" + message + "'");
-					}
+						@Override
+						public void onWebSocketText(String message) {
+							log.info("+TEXT: '" + message + "'");
+						}
+					};
 				});
 			}
 		};
-		
+
 		serve(wss);
 		System.in.read();
 		server.stop();
