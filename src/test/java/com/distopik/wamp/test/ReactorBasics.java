@@ -89,7 +89,6 @@ public class ReactorBasics {
 			public void configure(WebSocketServletFactory factory) {
 				factory.setCreator((req, resp) -> {
 					resp.setAcceptedSubProtocol(req.getSubProtocols().get(0));
-					
 					return new WebSocketAdapter() {
 						ObjectMapper        mapper  = new ObjectMapper();
 						Broadcaster<String> strings = Broadcaster.<String>create(Environment.cachedDispatcher());
@@ -98,8 +97,7 @@ public class ReactorBasics {
 							return true;
 						}
 						
-						private void dispatch(Session session, WAMPMessage msg) {
-							
+						private void dispatch(WAMPMessage msg) {
 						}
 						
 						private JsonNode readJson(String string) {
@@ -110,12 +108,14 @@ public class ReactorBasics {
 						
 						@Override
 						public void onWebSocketBinary(byte[] payload, int offset, int len) {
+							super.onWebSocketBinary(payload, offset, len);
 							log.info("+BYTES: '{}' @{}+{}", payload, offset, len);
 						}
 
 						@Override
 						public void onWebSocketClose(int statusCode,
 								String reason) {
+							super.onWebSocketClose(statusCode, reason);
 							log.info("CLOSED {} because '{}'", statusCode, reason);
 						}
 
@@ -131,7 +131,7 @@ public class ReactorBasics {
 							 *  - filter 
 							 */
 							Stream<WAMPMessage> receiving = Streams.defer(() -> strings)
-															.filter (unused -> session.isOpen())
+															.filter (unused -> isConnected())
 															.map    (this::readJson)
 															.filter (WAMPMessage::verifyFormat)
 															.map    (WAMPMessage::create)
@@ -139,20 +139,22 @@ public class ReactorBasics {
 															
 							Stream<WAMPMessage> messages  = Broadcaster.<WAMPMessage>create(Environment.cachedDispatcher());
 							Stream<String>      sending   = Streams.defer(() -> messages)
-															.filter (unused  -> session.isOpen())
+															.filter (unused  -> isConnected())
 															.map    (message -> message.serialize());
 							
-							receiving.consume(msg -> dispatch(session, msg));
-							sending.consume(msgString -> session.getRemote().sendStringByFuture(msgString));
+							receiving.consume(this::dispatch);
+							sending.consume(msgString -> getRemote().sendStringByFuture(msgString));
 						}
 
 						@Override
 						public void onWebSocketError(Throwable cause) {
+							super.onWebSocketError(cause);
 							log.error("ERROR", cause);
 						}
 
 						@Override
 						public void onWebSocketText(String message) {
+							super.onWebSocketText(message);
 							// submit our bytes to the stream
 							log.info("+TEXT: '{}'", message);
 							strings.onNext(message);
