@@ -1,5 +1,7 @@
 package com.distopik.wamp.test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 
 import javax.servlet.http.HttpServlet;
@@ -22,20 +24,25 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.ArrayList;
-
-import reactor.bus.selector.Selector;
-
 import reactor.Environment;
+import reactor.bus.Event;
+import reactor.bus.EventBus;
+import reactor.bus.selector.Selector;
+import reactor.bus.registry.Registration;
+
+import static reactor.bus.selector.Selectors.$;
+
 import reactor.rx.Stream;
 import reactor.rx.Streams;
 import reactor.rx.broadcast.Broadcaster;
+
+import reactor.fn.Consumer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class ReactorBasics {
 	private static Server server;
@@ -59,6 +66,15 @@ public class ReactorBasics {
 		env = null;
 	}
 	
+	private static final ObjectNode WAMP_ROUTER_CAPABILITIES = JsonNodeFactory.instance.objectNode();
+	static {
+		WAMP_ROUTER_CAPABILITIES.set("agent", JsonNodeFactory.instance.textNode("reactor-wamp"));
+		ObjectNode roles = JsonNodeFactory.instance.objectNode();
+		roles.set("broker", JsonNodeFactory.instance.objectNode());
+		roles.set("dealer", JsonNodeFactory.instance.objectNode());
+		WAMP_ROUTER_CAPABILITIES.set("roles", roles);
+	}
+	
 	static class WAMPMessage {
 		long     type;
 		String   uri;
@@ -71,11 +87,17 @@ public class ReactorBasics {
 		public static final int AUTHENTICATE = 5;
 		public static final int GOODBYE      = 6;
 		
+		public static final int SUBSCRIBE    = 32;
+		public static final int UNSUBSCRIBE  = 32;
+		public static final int EVENT        = 36;
+		
+		
 		public static boolean verifyFormat(JsonNode node) {
 			return node.isArray() && node.size() >= 2 && node.get(0).isIntegralNumber();
 		}
 		
 		public WAMPMessage(JsonNode node) {
+			/* very much not true ... fix at some point */
 			this.type    = node.get(0).asLong();
 			this.uri     = node.get(1).asText();
 			this.payload = node.get(2);
@@ -111,20 +133,28 @@ public class ReactorBasics {
 		}
 	}
 	
+	static Map<String, EventBus> realmEventBus = new HashMap<>();
+	
 	@Test
 	public void simple() throws Exception {
 		WebSocketServlet wss = new WebSocketServlet() {
 			private static final long serialVersionUID = 1L;
-
+			
 			@Override
 			public void configure(WebSocketServletFactory factory) {
 				factory.setCreator((req, resp) -> {
 					resp.setAcceptedSubProtocol(req.getSubProtocols().get(0));
 					return new WebSocketAdapter() {
-						ObjectMapper             mapper   = new ObjectMapper();
-						Broadcaster<String>      strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
-						Broadcaster<WAMPMessage> messages = Broadcaster.<WAMPMessage>create(Environment.cachedDispatcher());
-						List<Selector<String>>   subs     = new ArrayList<>();
+						long     sessionId = 0;
+						String   realm     = "default";
+						EventBus realmBus  = null;
+						
+						
+						ObjectMapper               mapper   = new ObjectMapper();
+						Broadcaster<String>        strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
+						Broadcaster<WAMPMessage>   messages = Broadcaster.<WAMPMessage>create(Environment.cachedDispatcher());
+						
+						Map<Selector<String>, Registration<Consumer<? extends Event<?>>>> subs = new HashMap<>();
 						
 						private boolean verifySecurity(WAMPMessage node) {
 							return true;
@@ -132,11 +162,46 @@ public class ReactorBasics {
 						
 						private void dispatch(WAMPMessage msg) {
 							if (msg.getType() == WAMPMessage.HELLO) {
+								realm = msg.getUri();
+								if (!realmEventBus.containsKey(realm))
+									realmEventBus.put(realm, realmBus = EventBus.create());
+								else realmBus = realmEventBus.get(realm);
+								log.info("Client joined to realm '{}'", realm);
 								messages.onNext(new WAMPMessage(
 										WAMPMessage.WELCOME, 
-										msg.getUri(), 
-										JsonNodeFactory.instance.objectNode()));
+										Long.toString(sessionId++), 
+										WAMP_ROUTER_CAPABILITIES));
+							} else if (msg.getType() == WAMPMessage.SUBSCRIBE) {
+								final String topic = msg.getUri();
+								final Selector<String> selector = $(topic);
+								log.info("Client wants to subscribe to '{}'", topic);
+								if (subs.containsKey(selector)) {
+									/* error */
+								} else {
+									subs.put(selector, realmBus.on(selector, (Event<JsonNode> event) -> {
+										if (subs.containsKey(selector)) {
+											messages.onNext(new WAMPMessage(
+													WAMPMessage.EVENT,
+													topic,
+													event.getData()));
+										}
+									}));
+								}
+							} else if (msg.getType() == WAMPMessage.UNSUBSCRIBE) {
+								final String topic = msg.getUri();
+								log.info("Client wants to unsubscribe from '{}'", topic);
+								final Selector<String> selector = $(topic);
+								if (subs.containsKey(selector)) {
+									subs.remove(selector);
+								}
 							}
+						}
+						
+						private void cleanup() {
+							for (Registration<Consumer<? extends Event<?>>> reg : subs.values()) {
+								reg.cancel();
+							}
+							subs.clear();
 						}
 						
 						private JsonNode readJson(String string) {
@@ -156,6 +221,7 @@ public class ReactorBasics {
 								String reason) {
 							super.onWebSocketClose(statusCode, reason);
 							log.info("CLOSED {} because '{}'", statusCode, reason);
+							cleanup();
 						}
 
 						@Override
@@ -163,12 +229,12 @@ public class ReactorBasics {
 							super.onWebSocketConnect(session);
 							log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
 							
-							Stream<WAMPMessage> receiving = Streams.defer(() -> strings)        /* items come in when we publish strings   */
-															.filter (unused -> isConnected())   /* skip items when we are not connected    */
-															.map    (this::readJson)            /* convert strings to JSON                 */
-															.filter (WAMPMessage::verifyFormat) /* verify the format of JSON (array..)     */
-															.map    (WAMPMessage::create)       /* slice JSON to a message POJO            */
-															.filter (this::verifySecurity);     /* skip items that the realm doesn't allow */
+							Stream<WAMPMessage> receiving = Streams.defer(() -> strings)        /* items come in when we publish strings  */
+															.filter (unused -> isConnected())   /* skip items when we are not connected   */
+															.map    (this::readJson)            /* convert strings to JSON                */
+															.filter (WAMPMessage::verifyFormat) /* verify the format of JSON (array..)    */
+															.map    (WAMPMessage::create)       /* slice JSON to a message POJO           */
+															.filter (this::verifySecurity);     /* skip msgs that the realm doesn't allow */
 															
 							Stream<String>      sending   = Streams.defer(() -> messages)             /* items come in when we publish msgs   */
 															.filter (unused  -> isConnected())        /* skip items when we are not connected */
@@ -183,6 +249,7 @@ public class ReactorBasics {
 							super.onWebSocketError(cause);
 							log.error("ERROR", cause);
 							if (isConnected()) {
+								cleanup();
 								getSession().close();
 							}
 						}
