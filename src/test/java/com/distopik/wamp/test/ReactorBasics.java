@@ -22,6 +22,11 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+import java.util.ArrayList;
+
+import reactor.bus.selector.Selector;
+
 import reactor.Environment;
 import reactor.rx.Stream;
 import reactor.rx.Streams;
@@ -56,7 +61,15 @@ public class ReactorBasics {
 	
 	static class WAMPMessage {
 		long     type;
+		String   uri;
 		JsonNode payload;
+		
+		public static final int HELLO        = 1;
+		public static final int WELCOME      = 2;
+		public static final int ABORT        = 3;
+		public static final int CHALLENGE    = 4;
+		public static final int AUTHENTICATE = 5;
+		public static final int GOODBYE      = 6;
 		
 		public static boolean verifyFormat(JsonNode node) {
 			return node.isArray() && node.size() >= 2 && node.get(0).isIntegralNumber();
@@ -64,7 +77,14 @@ public class ReactorBasics {
 		
 		public WAMPMessage(JsonNode node) {
 			this.type    = node.get(0).asLong();
-			this.payload = node.get(1); 
+			this.uri     = node.get(1).asText();
+			this.payload = node.get(2);
+		}
+		
+		public WAMPMessage(int type, String uri, JsonNode payload) {
+			this.type    = type;
+			this.uri     = uri;
+			this.payload = payload;
 		}
 		
 		public static WAMPMessage create(JsonNode node) {
@@ -74,9 +94,20 @@ public class ReactorBasics {
 		public String serialize() {
 			ArrayNode rv = JsonNodeFactory.instance.arrayNode();
 			rv.add(type);
-			rv.add(payload);
+			if (uri != null)
+				rv.add(uri);
+			if (payload != null)
+				rv.add(payload);
 			
 			return rv.toString();
+		}
+		
+		public long getType() {
+			return type;
+		}
+		
+		public String getUri() {
+			return uri;
 		}
 	}
 	
@@ -90,14 +121,22 @@ public class ReactorBasics {
 				factory.setCreator((req, resp) -> {
 					resp.setAcceptedSubProtocol(req.getSubProtocols().get(0));
 					return new WebSocketAdapter() {
-						ObjectMapper        mapper  = new ObjectMapper();
-						Broadcaster<String> strings = Broadcaster.<String>create(Environment.cachedDispatcher());
+						ObjectMapper             mapper   = new ObjectMapper();
+						Broadcaster<String>      strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
+						Broadcaster<WAMPMessage> messages = Broadcaster.<WAMPMessage>create(Environment.cachedDispatcher());
+						List<Selector<String>>   subs     = new ArrayList<>();
 						
 						private boolean verifySecurity(WAMPMessage node) {
 							return true;
 						}
 						
 						private void dispatch(WAMPMessage msg) {
+							if (msg.getType() == WAMPMessage.HELLO) {
+								messages.onNext(new WAMPMessage(
+										WAMPMessage.WELCOME, 
+										msg.getUri(), 
+										JsonNodeFactory.instance.objectNode()));
+							}
 						}
 						
 						private JsonNode readJson(String string) {
@@ -124,12 +163,6 @@ public class ReactorBasics {
 							super.onWebSocketConnect(session);
 							log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
 							
-							/**
-							 * Stream progression:
-							 * 
-							 *  - convert to JSON
-							 *  - filter 
-							 */
 							Stream<WAMPMessage> receiving = Streams.defer(() -> strings)
 															.filter (unused -> isConnected())
 															.map    (this::readJson)
@@ -137,7 +170,6 @@ public class ReactorBasics {
 															.map    (WAMPMessage::create)
 															.filter (this::verifySecurity);
 															
-							Stream<WAMPMessage> messages  = Broadcaster.<WAMPMessage>create(Environment.cachedDispatcher());
 							Stream<String>      sending   = Streams.defer(() -> messages)
 															.filter (unused  -> isConnected())
 															.map    (message -> message.serialize());
@@ -150,12 +182,14 @@ public class ReactorBasics {
 						public void onWebSocketError(Throwable cause) {
 							super.onWebSocketError(cause);
 							log.error("ERROR", cause);
+							if (isConnected()) {
+								getSession().close();
+							}
 						}
 
 						@Override
 						public void onWebSocketText(String message) {
 							super.onWebSocketText(message);
-							// submit our bytes to the stream
 							log.info("+TEXT: '{}'", message);
 							strings.onNext(message);
 						}
