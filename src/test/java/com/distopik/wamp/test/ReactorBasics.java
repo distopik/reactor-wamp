@@ -163,16 +163,16 @@ public class ReactorBasics {
 							super.onWebSocketConnect(session);
 							log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
 							
-							Stream<WAMPMessage> receiving = Streams.defer(() -> strings)
-															.filter (unused -> isConnected())
-															.map    (this::readJson)
-															.filter (WAMPMessage::verifyFormat)
-															.map    (WAMPMessage::create)
-															.filter (this::verifySecurity);
+							Stream<WAMPMessage> receiving = Streams.defer(() -> strings)        /* items come in when we publish strings   */
+															.filter (unused -> isConnected())   /* skip items when we are not connected    */
+															.map    (this::readJson)            /* convert strings to JSON                 */
+															.filter (WAMPMessage::verifyFormat) /* verify the format of JSON (array..)     */
+															.map    (WAMPMessage::create)       /* slice JSON to a message POJO            */
+															.filter (this::verifySecurity);     /* skip items that the realm doesn't allow */
 															
-							Stream<String>      sending   = Streams.defer(() -> messages)
-															.filter (unused  -> isConnected())
-															.map    (message -> message.serialize());
+							Stream<String>      sending   = Streams.defer(() -> messages)             /* items come in when we publish msgs   */
+															.filter (unused  -> isConnected())        /* skip items when we are not connected */
+															.map    (message -> message.serialize()); /* convert messages to strings          */
 							
 							receiving.consume(this::dispatch);
 							sending.consume(msgString -> getRemote().sendStringByFuture(msgString));
