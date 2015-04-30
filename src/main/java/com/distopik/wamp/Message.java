@@ -54,6 +54,32 @@ class Message implements Serializable {
 	private long       subscriptionId;
 	private long       registrationId;
 	
+	
+	public Message() {
+	}
+	
+	public Message(JsonNode node) {
+		MessageSpec.read(node, this);
+	}
+	
+	public Message(int type, Message msg) {
+		this(msg);
+		this.type = type;
+	}
+
+	public Message(Message msg) {
+		this.type      = msg.type;
+		this.uri       = msg.uri;
+		this.sessionId = msg.sessionId;
+		this.details   = msg.details == null ? null : msg.details.deepCopy();
+		this.requestId = msg.requestId;
+		this.arguments = msg.arguments == null ? null : msg.arguments.deepCopy();
+		this.argumentsKeywords = msg.argumentsKeywords == null ? null : msg.argumentsKeywords.deepCopy();
+		this.publicationId     = msg.publicationId;
+		this.subscriptionId    = msg.subscriptionId;
+		this.registrationId    = msg.registrationId;
+	}
+
 	public static boolean removeNulls(Message node) {
 		 return node != null;
 	}
@@ -201,5 +227,9 @@ class Message implements Serializable {
 	
 	public void setRegistrationId(long registrationId) {
 		this.registrationId = registrationId;
+	}
+
+	public Message deepCopy() {
+		return new Message(getType(), this);
 	}
 }

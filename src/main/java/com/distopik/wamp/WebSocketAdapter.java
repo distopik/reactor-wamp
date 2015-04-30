@@ -28,6 +28,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketAdapter {
 	Logger log = LoggerFactory.getLogger(WebSocketAdapter.class);
 	private static long sessionId = 0;
+	private static long subscriptionId = 0;
+	
 	private static final Map<String, EventBus> realmEventBus = new HashMap<>();
 	private static final ObjectNode WAMP_ROUTER_CAPABILITIES = objectNode();
 	static {
@@ -42,12 +44,23 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		return JsonNodeFactory.instance.objectNode();
 	}
 	
+	private <T> boolean filterNulls(T item) {
+		return item != null;
+	}
+	
+	private Message readMessage(JsonNode node) {
+		if (!node.isArray())
+			return null; /* this can become an error at some point .. */
+		
+		return new Message(node);
+	}
+	
 	private String   realm     = "default";
 	private EventBus realmBus  = null;
 	
 	private final Broadcaster<String>  strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
 	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]>create(Environment.cachedDispatcher());
-	private final Broadcaster<Message> messages = Broadcaster.<Message>create(Environment.cachedDispatcher());
+	private final Broadcaster<Message> replies  = Broadcaster.<Message>create(Environment.cachedDispatcher());
 	
 	private Map<Selector<?>, Registration<Consumer<? extends Event<?>>>> subs = new HashMap<>();
 	
@@ -67,40 +80,34 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		subs.clear();
 	}
 	
-	private void dispatch(Message msg) {
+	private void dispatch(final Message msg) {
 		if (msg.getType() == Message.HELLO) {
-			realm = msg.getUri();
-			if (!realmEventBus.containsKey(realm))
-				realmEventBus.put(realm, realmBus = EventBus.create());
-			else realmBus = realmEventBus.get(realm);
-			log.info("Client joined to realm '{}'", realm);
-			messages.onNext(new Message(
-					Message.WELCOME, 
-					Long.toString(sessionId++), 
-					WAMP_ROUTER_CAPABILITIES));
+			final Message reply = new Message(Message.WELCOME, msg);
+			this.realm    = msg.getUri();
+			this.realmBus = realmEventBus.get(realm);
+			if (this.realmBus == null)
+				realmEventBus.put(realm, this.realmBus = EventBus.create());
+			reply.setSessionId(sessionId++);
+			replies.onNext(reply);
 		} else if (msg.getType() == Message.SUBSCRIBE) {
-			final String topic = msg.getUri();
-			final Selector<?> selector = $(topic);
-			log.info("Client wants to subscribe to '{}'", topic);
-			if (subs.containsKey(selector)) {
-				/* error */
-			} else {
-				subs.put(selector, realmBus.on(selector, (Event<JsonNode> event) -> {
-					if (subs.containsKey(selector)) {
-						messages.onNext(new Message(
-								Message.EVENT,
-								topic,
-								event.getData()));
-					}
+			final Message reply = new Message(Message.SUBSCRIBED, msg);
+			final Selector<?> s = $(msg.getUri());
+			if (!subs.containsKey(s)) {
+				final long subId = subscriptionId++;
+				reply.setSubscriptionId(subId);
+				subs.put(s, realmBus.<Event<Message>>on(s, event -> {
+					/* copies the arguments, argument keywords, publish id ... */
+					Message eventMessage = new Message(Message.EVENT, event.getData());
+					eventMessage.setSubscriptionId(subId);
+					replies.onNext(eventMessage);
 				}));
 			}
-		} else if (msg.getType() == Message.UNSUBSCRIBE) {
-			final String topic = msg.getUri();
-			log.info("Client wants to unsubscribe from '{}'", topic);
-			final Selector<?> selector = $(topic);
-			if (subs.containsKey(selector)) {
-				subs.remove(selector);
-			}
+			replies.onNext(reply);
+		} else if (msg.getType() == Message.PUBLISH) {
+			final Message reply = new Message(Message.PUBLISHED, msg);
+			final Selector<?> s = $(msg.getUri());
+			realmBus.send(s, new Event<Message>(msg));
+			replies.onNext(reply);
 		}
 	}
 	
@@ -111,17 +118,17 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
     	log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
 		
 		Stream<Message> messages  = createJsonStream()
-										.map    (Message::create)       /* slice JSON to a message POJO           */
-										.filter (Message::removeNulls)  /* remove all where parsing failed        */
+										.map    (this::readMessage)     /* slice JSON to a message POJO           */
+										.filter (this::filterNulls)     /* remove all where parsing failed        */
 										.filter (this::verifySecurity); /* skip msgs that the realm doesn't allow */
 										
-		consumeJsonStream(Streams.defer(() -> messages)               /* items come in when we publish msgs   */
+		consumeJsonStream(Streams.defer(() -> replies)                /* items come in when we publish msgs   */
 								 .filter (unused  -> isConnected())); /* skip items when we are not connected */
 		
 		messages.consume(this::dispatch);
     }
 
-	private void consumeJsonStream(Stream<Message> stream) {
+	private void consumeJsonStream(Stream<Message> stream) { /* FnF */
 		if (textSerializer != null) {
 			stream.map    (textSerializer)
 			      .consume(text -> getRemote().sendStringByFuture(text));
