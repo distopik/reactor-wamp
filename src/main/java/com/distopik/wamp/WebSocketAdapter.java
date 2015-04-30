@@ -111,9 +111,9 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
     	log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
 		
 		Stream<Message> messages  = createJsonStream()
-										.filter (Message::verifyFormat) /* verify the format of JSON (array..)    */
 										.map    (Message::create)       /* slice JSON to a message POJO           */
-										.filter (this::verifySecurity);     /* skip msgs that the realm doesn't allow */
+										.filter (Message::removeNulls)  /* remove all where parsing failed        */
+										.filter (this::verifySecurity); /* skip msgs that the realm doesn't allow */
 										
 		consumeJsonStream(Streams.defer(() -> messages)               /* items come in when we publish msgs   */
 								 .filter (unused  -> isConnected())); /* skip items when we are not connected */
