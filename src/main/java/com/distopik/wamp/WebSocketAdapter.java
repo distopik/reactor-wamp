@@ -58,8 +58,8 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	private String   realm     = "default";
 	private EventBus realmBus  = null;
 	
-	private final Broadcaster<String>  strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
-	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]>create(Environment.cachedDispatcher());
+	private final Broadcaster<String>  strings  = Broadcaster.<String> create(Environment.cachedDispatcher());
+	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]> create(Environment.cachedDispatcher());
 	private final Broadcaster<Message> replies  = Broadcaster.<Message>create(Environment.cachedDispatcher());
 	
 	private Map<Selector<?>, Registration<Consumer<? extends Event<?>>>> subs = new HashMap<>();
@@ -82,33 +82,48 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	
 	private void dispatch(final Message msg) {
 		if (msg.getType() == Message.HELLO) {
-			final Message reply = new Message(Message.WELCOME, msg);
-			this.realm    = msg.getUri();
-			this.realmBus = realmEventBus.get(realm);
-			if (this.realmBus == null)
-				realmEventBus.put(realm, this.realmBus = EventBus.create());
-			reply.setSessionId(sessionId++);
-			replies.onNext(reply);
+			onHello(msg);
 		} else if (msg.getType() == Message.SUBSCRIBE) {
-			final Message reply = new Message(Message.SUBSCRIBED, msg);
-			final Selector<?> s = $(msg.getUri());
+			onSubscribe(msg);
+		} else if (msg.getType() == Message.PUBLISH) {
+			onPublish(msg);
+		}
+	}
+
+	public void onPublish(final Message msg) {
+		final Message reply = new Message(Message.PUBLISHED, msg);
+		final Selector<?> s = $(msg.getUri());
+		realmBus.send(s, new Event<Message>(msg));
+		replies.onNext(reply);
+	}
+
+	public void onSubscribe(final Message msg) {
+		final Message reply = new Message(Message.SUBSCRIBED, msg);
+		final Selector<?> s = $(msg.getUri());
+		synchronized (subs) {
 			if (!subs.containsKey(s)) {
 				final long subId = subscriptionId++;
 				reply.setSubscriptionId(subId);
 				subs.put(s, realmBus.<Event<Message>>on(s, event -> {
-					/* copies the arguments, argument keywords, publish id ... */
 					Message eventMessage = new Message(Message.EVENT, event.getData());
 					eventMessage.setSubscriptionId(subId);
 					replies.onNext(eventMessage);
 				}));
 			}
-			replies.onNext(reply);
-		} else if (msg.getType() == Message.PUBLISH) {
-			final Message reply = new Message(Message.PUBLISHED, msg);
-			final Selector<?> s = $(msg.getUri());
-			realmBus.send(s, new Event<Message>(msg));
-			replies.onNext(reply);
 		}
+		replies.onNext(reply);
+	}
+
+	public void onHello(final Message msg) {
+		final Message reply = new Message(Message.WELCOME, msg);
+		this.realm    = msg.getUri();
+		synchronized (realmEventBus) {
+			this.realmBus = realmEventBus.get(realm);
+			if (this.realmBus == null)
+				realmEventBus.put(realm, this.realmBus = EventBus.create());
+		}
+		reply.setSessionId(sessionId++);
+		replies.onNext(reply);
 	}
 	
 	@Override

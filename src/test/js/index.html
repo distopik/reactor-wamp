@@ -1,0 +1,20 @@
+<html>
+	<head>
+		<script src="https://autobahn.s3.amazonaws.com/autobahnjs/latest/autobahn.js"></script>
+		<script>
+			var AUTOBAHN_DEBUG = true;
+			var connection = new autobahn.Connection({
+		         url: 'ws://127.0.0.1:9000/',
+		         realm: 'realm1'
+		      });
+			function onevent(args) {
+				console.log("Event:", args[0]);
+		    }
+			connection.onopen = function (session) {
+			    session.subscribe('com.myapp.hello', onevent);
+			    session.publish('com.myapp.hello', ['Hello, world!']);
+			}
+		    connection.open();
+		</script>
+	</head>
+</html>
