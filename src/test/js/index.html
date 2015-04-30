@@ -14,8 +14,9 @@
 				console.log("Event:", args[0]);
 		    }
 			connection.onopen = function (session) {
-			    session.subscribe('com.myapp.hello', onevent);
-			    session.publish('com.myapp.hello', ['Hello, world!']);
+			    session.subscribe('com.myapp.hello', onevent).then(function() {
+			    	session.publish('com.myapp.hello', ['Hello, world!']);
+			    });
 			}
 		    connection.open();
 		</script>

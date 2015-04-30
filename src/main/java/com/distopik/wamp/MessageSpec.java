@@ -128,7 +128,7 @@ public class MessageSpec {
 
 	public static String debug(Message msg) {
 		StringBuilder sb = new StringBuilder();
-		sb.append("\n{");
+		sb.append("\n{\n");
 		for (SpecItem item : SPECS[msg.getType()].items) {
 			JsonNode value = msg.get(item);
 			sb.append("\t" + item.name() + ": " + (item == MessageTypeId ? NAMES[value.asInt()] : value) + "\n");

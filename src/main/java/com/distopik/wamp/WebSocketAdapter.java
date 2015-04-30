@@ -6,7 +6,6 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.slf4j.Logger;
@@ -30,8 +29,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketAdapter {
 	Logger log = LoggerFactory.getLogger(WebSocketAdapter.class);
-	private static long sessionId = 0;
-	private static long subscriptionId = 0;
+	private static long sessionId      = 1;
+	private static long subscriptionId = 1;
+	private static long publicationId  = 1;
 	
 	private static final Map<String, EventBus> realmEventBus = new HashMap<>();
 	private static final ObjectNode WAMP_ROUTER_CAPABILITIES = objectNode();
@@ -86,25 +86,31 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	}
 	
 	private void dispatch(final List<Tuple2<Long, Message>> block) {
-		int i = 0;
 		for (Tuple2<Long, Message> tuple : block) {
-			final Message msg = tuple.getT2();
-			log.info("{}: {}", i++, tuple.getT1());
-			if (msg.getType() == Message.HELLO) {
-				onHello(msg);
-			} else if (msg.getType() == Message.SUBSCRIBE) {
-				onSubscribe(msg);
-			} else if (msg.getType() == Message.PUBLISH) {
-				onPublish(msg);
-			}
+			dispatchSingle(tuple);
+		}
+	}
+
+	private void dispatchSingle(Tuple2<Long, Message> tuple) {
+		final Message msg = tuple.getT2();
+		log.info("{}", tuple.getT1());
+		if (msg.getType() == Message.HELLO) {
+			onHello(msg);
+		} else if (msg.getType() == Message.SUBSCRIBE) {
+			onSubscribe(msg);
+		} else if (msg.getType() == Message.PUBLISH) {
+			onPublish(msg);
 		}
 	}
 
 	public void onPublish(final Message msg) {
-		final Message reply = new Message(Message.PUBLISHED, msg);
-		final Selector<?> s = $(msg.getUri());
-		realmBus.send(s, new Event<Message>(msg));
-		replies.onNext(reply);
+		if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
+			final Message reply = new Message(Message.PUBLISHED, msg);
+			reply.setPublicationId(publicationId++);
+			replies.onNext(reply);
+		}
+		
+		realmBus.notify(msg.getUri(), new Event<Message>(msg));
 	}
 
 	public void onSubscribe(final Message msg) {
@@ -115,6 +121,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 				final long subId = subscriptionId++;
 				reply.setSubscriptionId(subId);
 				subs.put(s, realmBus.<Event<Message>>on(s, event -> {
+					log.warn("++++++++++ HEY! we did get the message! ++++++++++");
 					Message eventMessage = new Message(Message.EVENT, event.getData());
 					eventMessage.setSubscriptionId(subId);
 					replies.onNext(eventMessage);
@@ -148,8 +155,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 			.map      (this::debugMessage)    			/* debugging                              	*/
 			.filter   (this::filterNulls)     			/* remove all where parsing failed        	*/
 			.timestamp()                              	/* apply timestamp to msgs    				*/
-			.buffer   (250, TimeUnit.MILLISECONDS) 		/* buffer 25 or for 10ms      				*/
-			.consume  (this::dispatch);               	/* then dispatch the whole lot 				*/
+			.consume  (this::dispatchSingle);           /* then dispatch the whole lot 				*/
 								
 		consumeJsonStream(Streams.defer(() -> replies)                /* items come in when we publish msgs   */
 								 .map    (this::debugMessage)         /* debugging                            */
