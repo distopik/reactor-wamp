@@ -27,6 +27,7 @@ public class MessageSpec {
 	}
 	
 	public static final MessageSpec[] SPECS = new MessageSpec[LARGEST_MESSAGE_ID+1];
+	public static final String[]      NAMES = new String     [LARGEST_MESSAGE_ID+1];
 	static {
 		SPECS[HELLO]        = new MessageSpec(MessageTypeId, URI, Details);
 		SPECS[WELCOME]      = new MessageSpec(MessageTypeId, SessionId, Details);
@@ -47,6 +48,26 @@ public class MessageSpec {
 		SPECS[UNREGISTERED] = new MessageSpec(MessageTypeId, RequestId);
 		SPECS[INVOCATION]   = new MessageSpec(MessageTypeId, RequestId, RegistrationId, Details, Arguments, ArgumentsKeywords).setOptionalFrom(Arguments);
 		SPECS[YIELD]        = new MessageSpec(MessageTypeId, RequestId, Details, Arguments, ArgumentsKeywords).setOptionalFrom(Arguments);
+		
+		NAMES[HELLO]        = "HELLO";
+		NAMES[WELCOME]      = "WELCOME";
+		NAMES[ABORT]        = "ABORT";
+		NAMES[GOODBYE]      = "GOODBYE"; 
+		NAMES[ERROR]        = "ERROR";
+		NAMES[PUBLISH]      = "PUBLISH";
+		NAMES[PUBLISHED]    = "PUBLISHED";
+		NAMES[SUBSCRIBE]    = "SUBSCRIBE";
+		NAMES[SUBSCRIBED]   = "SUBSCRIBED";
+		NAMES[UNSUBSCRIBE]  = "UNSUBSCRIBE";
+		NAMES[EVENT]        = "EVENT";
+		NAMES[CALL]         = "CALL";
+		NAMES[RESULT]       = "RESULT";
+		NAMES[REGISTER]     = "REGISTER";
+		NAMES[REGISTERED]   = "REGISTERED";
+		NAMES[UNREGISTER]   = "UNREGISTER";
+		NAMES[UNREGISTERED] = "UNREGISTERED";
+		NAMES[INVOCATION]   = "INVOCATION";
+		NAMES[YIELD]        = "YIELD";
 	};
 	
 	private MessageSpec(SpecItem... items) {
@@ -88,7 +109,6 @@ public class MessageSpec {
 			}
 			
 			destination.set(item, value);
-			index++;
 		}
 		
 		return true;
@@ -110,7 +130,8 @@ public class MessageSpec {
 		StringBuilder sb = new StringBuilder();
 		sb.append("\n{");
 		for (SpecItem item : SPECS[msg.getType()].items) {
-			sb.append("\t" + item.name() + ": " + msg.get(item) + "\n");
+			JsonNode value = msg.get(item);
+			sb.append("\t" + item.name() + ": " + (item == MessageTypeId ? NAMES[value.asInt()] : value) + "\n");
 		}
 		sb.append("}");
 		return sb.toString();

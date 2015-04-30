@@ -4,7 +4,9 @@ import static reactor.bus.selector.Selectors.$;
 
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.slf4j.Logger;
@@ -17,6 +19,7 @@ import reactor.bus.registry.Registration;
 import reactor.bus.selector.Selector;
 import reactor.fn.Consumer;
 import reactor.fn.Function;
+import reactor.fn.tuple.Tuple2;
 import reactor.rx.Stream;
 import reactor.rx.Streams;
 import reactor.rx.broadcast.Broadcaster;
@@ -70,10 +73,6 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	private Function<Message, byte[]>  bytesSerializer;
 	private Function<Message, String>  textSerializer;
 	
-	private boolean verifySecurity(Message msg) {
-		return true;
-	}
-	
 	private void cleanup() {
 		for (Registration<Consumer<? extends Event<?>>> reg : subs.values()) {
 			reg.cancel();
@@ -86,13 +85,18 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		return msg;
 	}
 	
-	private void dispatch(final Message msg) {
-		if (msg.getType() == Message.HELLO) {
-			onHello(msg);
-		} else if (msg.getType() == Message.SUBSCRIBE) {
-			onSubscribe(msg);
-		} else if (msg.getType() == Message.PUBLISH) {
-			onPublish(msg);
+	private void dispatch(final List<Tuple2<Long, Message>> block) {
+		int i = 0;
+		for (Tuple2<Long, Message> tuple : block) {
+			final Message msg = tuple.getT2();
+			log.info("{}: {}", i++, tuple.getT1());
+			if (msg.getType() == Message.HELLO) {
+				onHello(msg);
+			} else if (msg.getType() == Message.SUBSCRIBE) {
+				onSubscribe(msg);
+			} else if (msg.getType() == Message.PUBLISH) {
+				onPublish(msg);
+			}
 		}
 	}
 
@@ -129,6 +133,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 				realmEventBus.put(realm, this.realmBus = EventBus.create());
 		}
 		reply.setSessionId(sessionId++);
+		reply.setDetails(WAMP_ROUTER_CAPABILITIES);
 		replies.onNext(reply);
 	}
 	
@@ -138,17 +143,17 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
     	
     	log.info("CONNECTED {}", session.getUpgradeRequest().getSubProtocols());
 		
-		Stream<Message> messages  = createJsonStream()
-										.map    (this::readMessage)     /* slice JSON to a message POJO           */
-										.map    (this::debugMessage)    /* debugging                              */
-										.filter (this::filterNulls)     /* remove all where parsing failed        */
-										.filter (this::verifySecurity); /* skip msgs that the realm doesn't allow */
-										
+		createJsonStream()
+			.map      (this::readMessage)     			/* slice JSON to a message POJO          	*/
+			.map      (this::debugMessage)    			/* debugging                              	*/
+			.filter   (this::filterNulls)     			/* remove all where parsing failed        	*/
+			.timestamp()                              	/* apply timestamp to msgs    				*/
+			.buffer   (250, TimeUnit.MILLISECONDS) 		/* buffer 25 or for 10ms      				*/
+			.consume  (this::dispatch);               	/* then dispatch the whole lot 				*/
+								
 		consumeJsonStream(Streams.defer(() -> replies)                /* items come in when we publish msgs   */
 								 .map    (this::debugMessage)         /* debugging                            */
 								 .filter (unused  -> isConnected())); /* skip items when we are not connected */
-		
-		messages.consume(this::dispatch);
     }
 
 	private void consumeJsonStream(Stream<Message> stream) { /* FnF */
