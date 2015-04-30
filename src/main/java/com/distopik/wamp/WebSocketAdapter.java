@@ -49,8 +49,9 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	}
 	
 	private Message readMessage(JsonNode node) {
-		if (!node.isArray())
+		if (!node.isArray()) {
 			return null; /* this can become an error at some point .. */
+		}
 		
 		return new Message(node);
 	}
@@ -78,6 +79,11 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 			reg.cancel();
 		}
 		subs.clear();
+	}
+	
+	private Message debugMessage(Message msg) {
+		log.info(MessageSpec.debug(msg));
+		return msg;
 	}
 	
 	private void dispatch(final Message msg) {
@@ -134,10 +140,12 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		
 		Stream<Message> messages  = createJsonStream()
 										.map    (this::readMessage)     /* slice JSON to a message POJO           */
+										.map    (this::debugMessage)    /* debugging                              */
 										.filter (this::filterNulls)     /* remove all where parsing failed        */
 										.filter (this::verifySecurity); /* skip msgs that the realm doesn't allow */
 										
 		consumeJsonStream(Streams.defer(() -> replies)                /* items come in when we publish msgs   */
+								 .map    (this::debugMessage)         /* debugging                            */
 								 .filter (unused  -> isConnected())); /* skip items when we are not connected */
 		
 		messages.consume(this::dispatch);

@@ -4,8 +4,6 @@ import static com.distopik.wamp.Message.*;
 import static com.distopik.wamp.SpecItem.*;
 import static com.fasterxml.jackson.databind.node.JsonNodeType.*;
 
-import java.awt.ItemSelectable;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -28,7 +26,7 @@ public class MessageSpec {
 		expectedNodeTypes[SubscriptionId.ordinal()]    = NUMBER;
 	}
 	
-	public static final MessageSpec[] SPECS = new MessageSpec[LARGEST_MESSAGE_ID];
+	public static final MessageSpec[] SPECS = new MessageSpec[LARGEST_MESSAGE_ID+1];
 	static {
 		SPECS[HELLO]        = new MessageSpec(MessageTypeId, URI, Details);
 		SPECS[WELCOME]      = new MessageSpec(MessageTypeId, SessionId, Details);
@@ -69,9 +67,6 @@ public class MessageSpec {
 	}
 	
 	public static boolean read(JsonNode source, Message destination) {
-		if (!source.isArray())
-			return false;
-		
 		int messageTypeId = source.get(0).asInt();
 		
 		if (messageTypeId > SPECS.length || SPECS[messageTypeId] == null) {
@@ -109,5 +104,15 @@ public class MessageSpec {
 			rv.add(node);
 		}
 		return rv;
+	}
+
+	public static String debug(Message msg) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("\n{");
+		for (SpecItem item : SPECS[msg.getType()].items) {
+			sb.append("\t" + item.name() + ": " + msg.get(item) + "\n");
+		}
+		sb.append("}");
+		return sb.toString();
 	}
 }
