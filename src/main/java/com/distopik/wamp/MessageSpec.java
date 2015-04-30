@@ -4,7 +4,11 @@ import static com.distopik.wamp.Message.*;
 import static com.distopik.wamp.SpecItem.*;
 import static com.fasterxml.jackson.databind.node.JsonNodeType.*;
 
+import java.awt.ItemSelectable;
+
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.JsonNodeType;
 
 public class MessageSpec {
@@ -15,21 +19,19 @@ public class MessageSpec {
 	static {
 		expectedNodeTypes[MessageTypeId.ordinal()]     = NUMBER;
 		expectedNodeTypes[URI.ordinal()]               = STRING;
-		expectedNodeTypes[Session.ordinal()]           = NUMBER;
+		expectedNodeTypes[SessionId.ordinal()]         = NUMBER;
 		expectedNodeTypes[Details.ordinal()]           = OBJECT;
-		expectedNodeTypes[RequestType.ordinal()]       = NUMBER;
 		expectedNodeTypes[RequestId.ordinal()]         = NUMBER;
 		expectedNodeTypes[Arguments.ordinal()]         = ARRAY;
 		expectedNodeTypes[ArgumentsKeywords.ordinal()] = OBJECT;
 		expectedNodeTypes[PublicationId.ordinal()]     = NUMBER;
 		expectedNodeTypes[SubscriptionId.ordinal()]    = NUMBER;
-		expectedNodeTypes[Topic.ordinal()]             = STRING;
 	}
 	
 	public static final MessageSpec[] SPECS = new MessageSpec[LARGEST_MESSAGE_ID];
 	static {
 		SPECS[HELLO]        = new MessageSpec(MessageTypeId, URI, Details);
-		SPECS[WELCOME]      = new MessageSpec(MessageTypeId, Session, Details);
+		SPECS[WELCOME]      = new MessageSpec(MessageTypeId, SessionId, Details);
 		SPECS[ABORT]        = new MessageSpec(MessageTypeId, Details, URI);
 		SPECS[GOODBYE]      = new MessageSpec(MessageTypeId, Details, URI); 
 		SPECS[ERROR]        = new MessageSpec(MessageTypeId, RequestId, Details, URI, Arguments, ArgumentsKeywords).setOptionalFrom(Arguments);
@@ -50,8 +52,8 @@ public class MessageSpec {
 	};
 	
 	private MessageSpec(SpecItem... items) {
-		this.items = items;
-		optional = new boolean[items.length];
+		this.items    = items;
+		this.optional = new boolean[items.length];
 	}
 	
 	private MessageSpec setOptionalFrom(SpecItem what) {
@@ -85,15 +87,27 @@ public class MessageSpec {
 				return optional[index];
 			}
 			JsonNode value = source.get(index);
-			SpecItem type  = items[index];
-			if (value.getNodeType() != expectedNodeTypes[type.ordinal()]) {
+			SpecItem item  = items[index];
+			if (value.getNodeType() != expectedNodeTypes[item.ordinal()]) {
 				return false;
 			}
 			
-			destination.set(type, value);
+			destination.set(item, value);
 			index++;
 		}
 		
 		return true;
+	}
+
+	public static JsonNode write(Message message) {
+		final MessageSpec spec = SPECS[message.getType()];
+		final ArrayNode   rv   = JsonNodeFactory.instance.arrayNode();
+		for (int i = 0; i < spec.items.length; i++) {
+			JsonNode node = message.get(spec.items[i]);
+			if (node == null && spec.optional[i])
+				continue;
+			rv.add(node);
+		}
+		return rv;
 	}
 }

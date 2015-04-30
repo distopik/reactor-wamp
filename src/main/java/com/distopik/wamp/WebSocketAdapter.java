@@ -45,16 +45,16 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	private String   realm     = "default";
 	private EventBus realmBus  = null;
 	
-	private final Broadcaster<String>      strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
-	private final Broadcaster<byte[]>      bytes    = Broadcaster.<byte[]>create(Environment.cachedDispatcher());
+	private final Broadcaster<String>  strings  = Broadcaster.<String>create(Environment.cachedDispatcher());
+	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]>create(Environment.cachedDispatcher());
 	private final Broadcaster<Message> messages = Broadcaster.<Message>create(Environment.cachedDispatcher());
 	
 	private Map<Selector<?>, Registration<Consumer<? extends Event<?>>>> subs = new HashMap<>();
 	
-	private Function<byte[], JsonNode>    bytesDeserializer;
-	private Function<String, JsonNode>    textDeserializer;
-	private Function<Message, byte[]> bytesSerializer;
-	private Function<Message, String> textSerializer;
+	private Function<byte[], JsonNode> bytesDeserializer;
+	private Function<String, JsonNode> textDeserializer;
+	private Function<Message, byte[]>  bytesSerializer;
+	private Function<Message, String>  textSerializer;
 	
 	private boolean verifySecurity(Message msg) {
 		return true;

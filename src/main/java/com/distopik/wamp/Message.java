@@ -1,10 +1,14 @@
 package com.distopik.wamp;
 
+import java.io.Serializable;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
-class Message {
+class Message implements Serializable {
+	private static final long serialVersionUID = 1L;
 	public static final int HELLO        = 1;
 	public static final int WELCOME      = 2;
 	public static final int ABORT        = 3;
@@ -39,43 +43,26 @@ class Message {
 	
 	public static final int LARGEST_MESSAGE_ID = YIELD;
 	
-	private long     type;
-	private String   uri;
-	private JsonNode payload;
+	private int        type;
+	private String     uri;
+	private long       sessionId;
+	private ObjectNode details;
+	private long       requestId;
+	private ArrayNode  arguments;
+	private ObjectNode argumentsKeywords;
+	private long       publicationId;
+	private long       subscriptionId;
+	private long       registrationId;
 	
 	public static boolean removeNulls(Message node) {
 		 return node != null;
 	}
 	
-	public Message(JsonNode node) {
-		/* very much not true ... fix at some point */
-		this.type    = node.get(0).asLong();
-		this.uri     = node.get(1).asText();
-		this.payload = node.get(2);
-	}
-	
-	public Message(int type, String uri, JsonNode payload) {
-		this.type    = type;
-		this.uri     = uri;
-		this.payload = payload;
-	}
-	
-	public static Message create(JsonNode node) {
-		return new Message(node);
-	}
-	
 	public JsonNode toJson() {
-		ArrayNode rv = JsonNodeFactory.instance.arrayNode();
-		rv.add(type);
-		if (uri != null)
-			rv.add(uri);
-		if (payload != null)
-			rv.add(payload);
-		
-		return rv;
+		return MessageSpec.write(this);
 	}
 	
-	public long getType() {
+	public int getType() {
 		return type;
 	}
 	
@@ -84,5 +71,135 @@ class Message {
 	}
 
 	public void set(SpecItem item, JsonNode node) {
+		switch(item) {
+		case MessageTypeId:
+			setType(node.asInt());
+			break;
+		case URI:
+			setUri(node.asText());
+			break;
+		case SessionId:
+			setSessionId(node.asLong());
+			break;
+		case Details:
+			setDetails((ObjectNode) node);
+			break;
+		case RequestId:
+			setRequestId(node.asLong());
+			break;
+		case Arguments:
+			setArguments((ArrayNode) node);
+			break;
+		case ArgumentsKeywords:
+			setArgumentsKeywords((ObjectNode) node);
+			break;
+		case PublicationId:
+			setPublicationId(node.asLong());
+			break;
+		case SubscriptionId:
+			setSubscriptionId(node.asLong());
+			break;
+		case RegistrationId:
+			setRegistrationId(node.asLong());
+		}
+	}
+	
+	JsonNode get(SpecItem item) {
+		switch(item) {
+		case MessageTypeId:
+			return JsonNodeFactory.instance.numberNode(getType());
+		case URI:
+			return JsonNodeFactory.instance.textNode(getUri());
+		case SessionId:
+			return JsonNodeFactory.instance.numberNode(getSessionId());
+		case Details:
+			return getDetails();
+		case RequestId:
+			return JsonNodeFactory.instance.numberNode(getRequestId());
+		case Arguments:
+			return getArguments();
+		case ArgumentsKeywords:
+			return getArgumentsKeywords();
+		case PublicationId:
+			return JsonNodeFactory.instance.numberNode(getPublicationId());
+		case SubscriptionId:
+			return JsonNodeFactory.instance.numberNode(getSubscriptionId());
+		case RegistrationId:
+			return JsonNodeFactory.instance.numberNode(getRegistrationId());
+		default:
+			return null;
+		}
+	}
+
+	public long getSessionId() {
+		return sessionId;
+	}
+
+	public void setSessionId(long sessionId) {
+		this.sessionId = sessionId;
+	}
+
+	public long getRequestId() {
+		return requestId;
+	}
+
+	public void setRequestId(long requestId) {
+		this.requestId = requestId;
+	}
+
+	public ArrayNode getArguments() {
+		return arguments;
+	}
+
+	public void setArguments(ArrayNode arguments) {
+		this.arguments = arguments;
+	}
+
+	public ObjectNode getArgumentsKeywords() {
+		return argumentsKeywords;
+	}
+
+	public void setArgumentsKeywords(ObjectNode argumentsKeywords) {
+		this.argumentsKeywords = argumentsKeywords;
+	}
+
+	public long getPublicationId() {
+		return publicationId;
+	}
+
+	public void setPublicationId(long publicationId) {
+		this.publicationId = publicationId;
+	}
+
+	public void setType(int type) {
+		this.type = type;
+	}
+
+	public void setUri(String uri) {
+		this.uri = uri;
+	}
+	
+	public void setDetails(ObjectNode details) {
+		this.details = details;
+	}
+	
+	public ObjectNode getDetails() {
+		return details;
+	}
+	
+	public long getSubscriptionId() {
+		return subscriptionId;
+	}
+	
+	public void setSubscriptionId(long subscriptionId) {
+		this.subscriptionId = subscriptionId;
+	}
+	
+	public long getRegistrationId() {
+		return registrationId;
+	}
+	
+	public void setRegistrationId(long registrationId) {
+		this.registrationId = registrationId;
 	}
 }
