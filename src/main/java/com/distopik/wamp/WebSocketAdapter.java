@@ -18,6 +18,7 @@ import reactor.rx.broadcast.Broadcaster;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import static com.distopik.wamp.Message.*;
 
 public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketAdapter {
 	Logger log = LoggerFactory.getLogger(WebSocketAdapter.class);
@@ -79,20 +80,22 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 				throw new IllegalStateException("No engine");
 			}
 			
-			if (sessionId < 0 && msg.getType() != Message.HELLO) {
+			if (sessionId < 0 && msg.getType() != HELLO) {
 				throw new IllegalStateException("First message must be HELLO");
 			}
 			
-			if (msg.getType() == Message.ERROR) {
+			if (msg.getType() == ERROR) {
 				getSession().close();
-			} else if (msg.getType() == Message.HELLO) {
+			} else if (msg.getType() == HELLO) {
 				onHello(msg);
-			} else if (msg.getType() == Message.SUBSCRIBE) {
+			} else if (msg.getType() == SUBSCRIBE) {
 				onSubscribe(msg);
-			} else if (msg.getType() == Message.PUBLISH) {
+			} else if (msg.getType() == PUBLISH) {
 				onPublish(msg);
-			} else if (msg.getType() == Message.REGISTER) {
+			} else if (msg.getType() == REGISTER) {
 				onRegister(msg);
+			} else if (msg.getType() == YIELD) {
+				onYield(msg);
 			}
 		});
 	}
@@ -101,7 +104,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		try {
 			func.accept(msg);
 		} catch (Exception e) {
-			Message error = new Message(Message.ERROR, msg);
+			Message error = new Message(ERROR, msg);
 			error.setDetails(JsonNodeFactory.instance.objectNode().put("exception", e.toString()));
 			queueReply(error);
 		}
@@ -117,7 +120,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 				throw new IllegalStateException("already welcome");
 			}
 			
-			final Message reply = new Message(Message.WELCOME, msg);
+			final Message reply = new Message(WELCOME, msg);
 			reply.setSessionId(sessionId = engine.createSession(msg.getUri()));
 			reply.setDetails(WAMP_ROUTER_CAPABILITIES);
 			queueReply(reply);
@@ -128,14 +131,14 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		guardErrors(msg, unused -> {
 			long subId = engine.subscribe(sessionId, msg.getUri(), received -> {
 				if (isConnected()) {
-					Message eventMessage = new Message(Message.EVENT, received);
+					Message eventMessage = new Message(EVENT, received);
 					queueReply(eventMessage);
 					return true;
 				}
 				return false;
 			});
 			
-			final Message reply = new Message(Message.SUBSCRIBED, msg);
+			final Message reply = new Message(SUBSCRIBED, msg);
 			reply.setSubscriptionId(subId);
 			queueReply(reply);
 		});
@@ -145,7 +148,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		guardErrors(msg, unused -> {
 			long pubId = engine.publish(sessionId, msg.getUri(), msg);
 			if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
-				final Message reply = new Message(Message.PUBLISHED, msg);
+				final Message reply = new Message(PUBLISHED, msg);
 				reply.setPublicationId(pubId);
 				queueReply(reply);
 			}
@@ -153,6 +156,24 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	}
 	
 	private void onRegister(Message msg) {
+		guardErrors(msg, unused -> {
+			long regId = engine.register(sessionId, msg.getUri(), (args, notify) -> {
+				if (isConnected()) {
+					Message invoke = new Message(INVOCATION, args);
+					queueReply(invoke);
+					return true;
+				} else {
+					return false;
+				}
+			});
+			
+			Message registered = new Message(REGISTERED, msg);
+			registered.setRegistrationId(regId);
+			queueReply(registered);
+		});
+	}
+	
+	private void onYield(Message msg) {
 		guardErrors(msg, unused -> {
 		});
 	}

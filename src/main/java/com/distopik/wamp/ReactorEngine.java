@@ -186,6 +186,7 @@ public class ReactorEngine implements Engine {
 				if (reg == null)
 					throw new IllegalArgumentException("uri");
 				
+				args.setRegistrationId(reg.registrationId);
 				reg.handler.invoke(args, callme);
 				
 				return 0L;
