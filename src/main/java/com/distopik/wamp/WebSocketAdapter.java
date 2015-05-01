@@ -1,11 +1,15 @@
 package com.distopik.wamp;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 import reactor.Environment;
 import reactor.fn.Consumer;
@@ -15,9 +19,12 @@ import reactor.rx.Stream;
 import reactor.rx.Streams;
 import reactor.rx.broadcast.Broadcaster;
 
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+
 import static com.distopik.wamp.Message.*;
 
 public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketAdapter {
@@ -46,8 +53,9 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		return new Message(node);
 	}
 	
-	private Engine engine    = null;
-	private long   sessionId = -1;
+	private Engine engine       = null;
+	private long   sessionId    = -1;
+	private long   invocationId = 1;
 	
 	private final Broadcaster<String>  strings  = Broadcaster.<String> create(Environment.cachedDispatcher());
 	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]> create(Environment.cachedDispatcher());
@@ -57,6 +65,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	private Function<String, JsonNode> textDeserializer;
 	private Function<Message, byte[]>  bytesSerializer;
 	private Function<Message, String>  textSerializer;
+	private Map<Long, Notification>    futureInvocations = new HashMap<>();
 	
 	private Message debugMessage(Message msg) {
 		log.info(MessageSpec.debug(msg));
@@ -116,7 +125,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	
 	public void onHello(final Message msg) {
 		guardErrors(msg, unused-> {
-			if (sessionId < 0) {
+			if (sessionId > 0) {
 				throw new IllegalStateException("already welcome");
 			}
 			
@@ -159,9 +168,14 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		guardErrors(msg, unused -> {
 			long regId = engine.register(sessionId, msg.getUri(), (args, notify) -> {
 				if (isConnected()) {
-					Message invoke = new Message(INVOCATION, args);
-					queueReply(invoke);
-					return true;
+					synchronized (futureInvocations) {
+						Message invoke = new Message(INVOCATION, args);
+						long invId = invocationId++;
+						invoke.setRequestId(invId);
+						queueReply(invoke);
+						futureInvocations.put(invId, notify);
+						return true;
+					}
 				} else {
 					return false;
 				}
@@ -175,6 +189,14 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	
 	private void onYield(Message msg) {
 		guardErrors(msg, unused -> {
+			synchronized (futureInvocations) {
+				Notification target = futureInvocations.get(msg.getRequestId());
+				if (target == null)
+					throw new IllegalArgumentException("requestId");
+				
+				futureInvocations.remove(msg.getRequestId());
+				target.notify(msg);
+			}
 		});
 	}
 

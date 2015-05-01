@@ -50,6 +50,13 @@ public class ReactorEngine implements Engine {
 					sub.cancel();
 				}
 				subscriptions.clear();
+				
+				synchronized (realm.registrations) {
+					for (RPCReg reg : registrations.values()) {
+						realm.registrations.remove(reg.uri);
+					}
+				}
+				registrations.clear();
 			}
 		}
 	}

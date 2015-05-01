@@ -14,6 +14,13 @@
 				console.log("Event:", args[0]);
 		    }
 			connection.onopen = function (session) {
+				session.register('this.is.my.code', function(args) {
+					console.log('got args ' + args)
+					return 3;
+				}).then(function() {
+					session.call('this.is.my.code',  [3]);
+				});
+				
 			    session.subscribe('com.myapp.hello', onevent).then(function() {
 			    	session.publish('com.myapp.hello', ['Hello, world!']);
 			    });
