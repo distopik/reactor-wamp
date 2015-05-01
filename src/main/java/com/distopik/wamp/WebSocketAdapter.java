@@ -123,7 +123,6 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 				final long subId = subscriptionId++;
 				reply.setSubscriptionId(subId);
 				subs.put(s, realmBus.<Event<Message>>on(s, event -> {
-					log.warn("++++++++++ HEY! we did get the message! ++++++++++");
 					Message eventMessage = new Message(Message.EVENT, event.getData());
 					eventMessage.setSubscriptionId(subId);
 					replies.onNext(eventMessage);
