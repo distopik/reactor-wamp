@@ -104,12 +104,14 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	}
 
 	public void onPublish(final Message msg) {
+		long pubId = publicationId++;
 		if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
 			final Message reply = new Message(Message.PUBLISHED, msg);
-			reply.setPublicationId(publicationId++);
+			reply.setPublicationId(pubId);
 			replies.onNext(reply);
 		}
 		
+		msg.setPublicationId(pubId);
 		realmBus.notify(msg.getUri(), new Event<Message>(msg));
 	}
 
