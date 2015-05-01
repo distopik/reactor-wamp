@@ -1,14 +1,19 @@
 package com.distopik.wamp;
 
 import java.nio.ByteBuffer;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 
+
+
 import org.eclipse.jetty.websocket.api.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+
 
 
 import reactor.Environment;
@@ -20,9 +25,13 @@ import reactor.rx.Streams;
 import reactor.rx.broadcast.Broadcaster;
 
 
+
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+
 
 
 import static com.distopik.wamp.Message.*;
@@ -83,8 +92,6 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	private void dispatchSingle(Tuple2<Long, Message> tuple) {
 		final Message msg = tuple.getT2();
 		guardErrors(msg, unused -> {
-			log.info("{}", tuple.getT1());
-			
 			if (engine == null) {
 				throw new IllegalStateException("No engine");
 			}
@@ -235,7 +242,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 								 .filter (unused  -> isConnected())); /* skip items when we are not connected */
     }
 
-	private void consumeJsonStream(Stream<Message> stream) { /* FnF */
+	private void consumeJsonStream(Stream<Message> stream) { /* F&F */
 		if (textSerializer != null) {
 			stream.map    (textSerializer)
 			      .consume(text -> getRemote().sendStringByFuture(text));

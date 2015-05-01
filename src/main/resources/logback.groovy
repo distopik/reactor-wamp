@@ -4,6 +4,5 @@ appender("STDOUT", ConsoleAppender) {
 	}
   }
    
-logger("org.eclipse.jetty.websocket", DEBUG)
 logger("org.eclipse.jetty", INFO)
   root(DEBUG, ["STDOUT"])
