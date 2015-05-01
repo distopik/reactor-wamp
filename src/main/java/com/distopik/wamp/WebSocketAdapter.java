@@ -1,21 +1,13 @@
 package com.distopik.wamp;
 
-import static reactor.bus.selector.Selectors.$;
-
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.eclipse.jetty.websocket.api.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import reactor.Environment;
-import reactor.bus.Event;
-import reactor.bus.EventBus;
-import reactor.bus.registry.Registration;
-import reactor.bus.selector.Selector;
 import reactor.fn.Consumer;
 import reactor.fn.Function;
 import reactor.fn.tuple.Tuple2;
@@ -29,11 +21,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketAdapter {
 	Logger log = LoggerFactory.getLogger(WebSocketAdapter.class);
-	private static long sessionId      = 1;
-	private static long subscriptionId = 1;
-	private static long publicationId  = 1;
-	
-	private static final Map<String, EventBus> realmEventBus = new HashMap<>();
 	private static final ObjectNode WAMP_ROUTER_CAPABILITIES = objectNode();
 	static {
 		WAMP_ROUTER_CAPABILITIES.set("agent", JsonNodeFactory.instance.textNode("reactor-wamp"));
@@ -58,33 +45,25 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		
 		return new Message(node);
 	}
-	
-	private String   realm     = "default";
-	private EventBus realmBus  = null;
+	private Engine engine;
+	private long   sessionId;
 	
 	private final Broadcaster<String>  strings  = Broadcaster.<String> create(Environment.cachedDispatcher());
 	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]> create(Environment.cachedDispatcher());
 	private final Broadcaster<Message> replies  = Broadcaster.<Message>create(Environment.cachedDispatcher());
-	
-	private Map<Selector<?>, Registration<Consumer<? extends Event<?>>>> subs = new HashMap<>();
 	
 	private Function<byte[], JsonNode> bytesDeserializer;
 	private Function<String, JsonNode> textDeserializer;
 	private Function<Message, byte[]>  bytesSerializer;
 	private Function<Message, String>  textSerializer;
 	
-	private void cleanup() {
-		for (Registration<Consumer<? extends Event<?>>> reg : subs.values()) {
-			reg.cancel();
-		}
-		subs.clear();
-	}
-	
 	private Message debugMessage(Message msg) {
 		log.info(MessageSpec.debug(msg));
 		return msg;
 	}
 	
+	/* used sometimes :) */
+	@SuppressWarnings("unused")
 	private void dispatch(final List<Tuple2<Long, Message>> block) {
 		for (Tuple2<Long, Message> tuple : block) {
 			dispatchSingle(tuple);
@@ -102,49 +81,55 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 			onPublish(msg);
 		}
 	}
-
-	public void onPublish(final Message msg) {
-		long pubId = publicationId++;
-		if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
-			final Message reply = new Message(Message.PUBLISHED, msg);
-			reply.setPublicationId(pubId);
-			replies.onNext(reply);
+	
+	public void guardErrors(Message msg, Consumer<Message> func) {
+		try {
+			func.accept(msg);
+		} catch (Exception e) {
+			Message error = new Message(Message.ERROR, msg);
+			error.setDetails(JsonNodeFactory.instance.objectNode().put("exception", e.toString()));
+			queueReply(error);
 		}
-		
-		msg.setPublicationId(pubId);
-		realmBus.notify(msg.getUri(), new Event<Message>(msg));
 	}
-
-	public void onSubscribe(final Message msg) {
-		final Message reply = new Message(Message.SUBSCRIBED, msg);
-		final Selector<?> s = $(msg.getUri());
-		synchronized (subs) {
-			if (!subs.containsKey(s)) {
-				final long subId = subscriptionId++;
-				reply.setSubscriptionId(subId);
-				subs.put(s, realmBus.<Event<Message>>on(s, event -> {
-					Message eventMessage = new Message(Message.EVENT, event.getData());
-					eventMessage.setSubscriptionId(subId);
-					replies.onNext(eventMessage);
-				}));
-			}
-		}
-		replies.onNext(reply);
-	}
-
-	public void onHello(final Message msg) {
-		final Message reply = new Message(Message.WELCOME, msg);
-		this.realm    = msg.getUri();
-		synchronized (realmEventBus) {
-			this.realmBus = realmEventBus.get(realm);
-			if (this.realmBus == null)
-				realmEventBus.put(realm, this.realmBus = EventBus.create());
-		}
-		reply.setSessionId(sessionId++);
-		reply.setDetails(WAMP_ROUTER_CAPABILITIES);
+	
+	private void queueReply(final Message reply) {
 		replies.onNext(reply);
 	}
 	
+	public void onHello(final Message msg) {
+		guardErrors(msg, unused-> {
+			final Message reply = new Message(Message.WELCOME, msg);
+			reply.setDetails(WAMP_ROUTER_CAPABILITIES);
+			queueReply(reply);
+		});
+	}
+	
+	public void onSubscribe(final Message msg) {
+		guardErrors(msg, unused -> {
+			long subId = engine.subscribe(sessionId, msg.getUri(), received -> {
+				if (isConnected()) {
+					Message eventMessage = new Message(Message.EVENT, received);
+					queueReply(eventMessage);
+					return true;
+				}
+				return false;
+			});
+			
+			final Message reply = new Message(Message.SUBSCRIBED, msg);
+			reply.setSubscriptionId(subId);
+			queueReply(reply);
+		});
+	}
+
+	public void onPublish(final Message msg) {
+		long pubId = engine.publish(sessionId, msg.getUri(), msg);
+		if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
+			final Message reply = new Message(Message.PUBLISHED, msg);
+			reply.setPublicationId(pubId);
+			queueReply(reply);
+		}
+	}
+
 	@Override
     public void onWebSocketConnect(Session session) {
     	super.onWebSocketConnect(session);
@@ -189,7 +174,7 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	@Override
 	public void onWebSocketClose(int statusCode, String reason) {
 		super.onWebSocketClose(statusCode, reason);
-		cleanup();
+		engine.closeSession(sessionId);
 	}
 	
 	@Override
@@ -210,17 +195,19 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		strings.onNext(message);
 	}
 	
-	public static WebSocketAdapter createForText(final Function<String, JsonNode> textDeserializer, final Function<Message, String> textSerializer) {
+	public static WebSocketAdapter createForText(final Engine engine, final Function<String, JsonNode> textDeserializer, final Function<Message, String> textSerializer) {
 		WebSocketAdapter rv = new WebSocketAdapter();
 		rv.textDeserializer = textDeserializer;
 		rv.textSerializer   = textSerializer;
+		rv.engine           = engine;
 		return rv;
 	}
 	
-	public static WebSocketAdapter createForBytes(final Function<byte[], JsonNode> bytesDeserializer, final Function<Message, byte[]> bytesSerializer) {
+	public static WebSocketAdapter createForBytes(final Engine engine, final Function<byte[], JsonNode> bytesDeserializer, final Function<Message, byte[]> bytesSerializer) {
 		WebSocketAdapter rv = new WebSocketAdapter();
 		rv.bytesDeserializer = bytesDeserializer;
 		rv.bytesSerializer   = bytesSerializer;
+		rv.engine            = engine;
 		return rv;
 	}
 }

@@ -19,15 +19,17 @@ public class WebSocketServlet extends org.eclipse.jetty.websocket.servlet.WebSoc
 	private static final String WAMP_JSON_V2    = "wamp.2.json";
 	private static final String WAMP_MSGPACK_V2 = "wamp.2.msgpack";
 
+	private Engine engine;
+
 	@Override
 	public void configure(WebSocketServletFactory factory) {
 		factory.setCreator((req, resp) -> {
 			if (req.getSubProtocols().contains(WAMP_JSON_V2)) {
 				resp.setAcceptedSubProtocol(WAMP_JSON_V2);
-				return WebSocketAdapter.createForText(Codecs::readJson, Codecs::writeJson);
+				return WebSocketAdapter.createForText(engine, Codecs::readJson, Codecs::writeJson);
 			} else if (req.getSubProtocols().contains(WAMP_MSGPACK_V2)) {
 				resp.setAcceptedSubProtocol(WAMP_MSGPACK_V2);
-				return WebSocketAdapter.createForBytes(Codecs::readMsgpack, Codecs::writeMsgpack);
+				return WebSocketAdapter.createForBytes(engine, Codecs::readMsgpack, Codecs::writeMsgpack);
 			} else {
 				resp.setSuccess(false);
 				return null;

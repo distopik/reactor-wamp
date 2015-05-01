@@ -17,8 +17,8 @@ public class ReactorEngine implements Engine {
 		
 		public RPCReg(long registrationId, String uri, Invocation handler) {
 			this.registrationId = registrationId;
-			this.uri = uri;
-			this.handler = handler;
+			this.uri            = uri;
+			this.handler        = handler;
 		}
 		
 		long       registrationId;
@@ -107,7 +107,7 @@ public class ReactorEngine implements Engine {
 	public long subscribe(long sessionId, String uri, Notification callme) {
 		return checkSession(sessionId, s -> {
 			long subId = s.subscriptionId++;
-			s.subscriptions.put(subId, s.realm.eventBus.<Event<Arguments>>on($(uri), event -> {
+			s.subscriptions.put(subId, s.realm.eventBus.<Event<Message>>on($(uri), event -> {
 				if (!callme.notify(event.getData())) {
 					checkSubscription(s, subId, sub -> {
 						sub.cancel();
@@ -133,7 +133,7 @@ public class ReactorEngine implements Engine {
 	}
 
 	@Override
-	public long publish(long sessionId, String uri, Arguments arguments) {
+	public long publish(long sessionId, String uri, Message arguments) {
 		return checkSession(sessionId, s -> {
 			long pubId = s.publicationId++;
 			s.realm.eventBus.notify(uri, new Event<>(arguments));
@@ -177,7 +177,7 @@ public class ReactorEngine implements Engine {
 	}
 
 	@Override
-	public void call(long sessionId, String uri, Arguments args, Notification callme) {
+	public void call(long sessionId, String uri, Message args, Notification callme) {
 		checkSession(sessionId, s -> {
 			synchronized (s.realm.registrations) {
 				RPCReg reg = s.realm.registrations.get(uri);

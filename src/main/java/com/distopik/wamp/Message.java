@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-class Message implements Serializable {
+class Message implements Serializable, Arguments {
 	private static final long serialVersionUID = 1L;
 	public static final int HELLO        = 1;
 	public static final int WELCOME      = 2;
@@ -62,6 +62,9 @@ class Message implements Serializable {
 		MessageSpec.read(node, this);
 	}
 	
+	public Message(int type) {
+		this.type = type;
+	}
 	public Message(int type, Message msg) {
 		this(msg);
 		this.type = type;
@@ -176,6 +179,11 @@ class Message implements Serializable {
 	public ArrayNode getArguments() {
 		return arguments;
 	}
+	
+	public void setArguments(Arguments other) {
+		setArguments        (other.getArrayArguments());
+		setArgumentsKeywords(other.getKeywordArguments());
+	}
 
 	public void setArguments(ArrayNode arguments) {
 		this.arguments = arguments;
@@ -231,5 +239,15 @@ class Message implements Serializable {
 
 	public Message deepCopy() {
 		return new Message(getType(), this);
+	}
+
+	@Override
+	public ArrayNode getArrayArguments() {
+		return getArguments();
+	}
+
+	@Override
+	public ObjectNode getKeywordArguments() {
+		return getArgumentsKeywords();
 	}
 }
