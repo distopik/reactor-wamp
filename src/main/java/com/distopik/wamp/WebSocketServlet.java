@@ -19,7 +19,7 @@ public class WebSocketServlet extends org.eclipse.jetty.websocket.servlet.WebSoc
 	private static final String WAMP_JSON_V2    = "wamp.2.json";
 	private static final String WAMP_MSGPACK_V2 = "wamp.2.msgpack";
 
-	private Engine engine;
+	private Engine engine = new ReactorEngine();
 
 	@Override
 	public void configure(WebSocketServletFactory factory) {

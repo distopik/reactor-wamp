@@ -42,11 +42,11 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 		if (!node.isArray()) {
 			return null; /* this can become an error at some point .. */
 		}
-		
 		return new Message(node);
 	}
-	private Engine engine;
-	private long   sessionId;
+	
+	private Engine engine    = null;
+	private long   sessionId = -1;
 	
 	private final Broadcaster<String>  strings  = Broadcaster.<String> create(Environment.cachedDispatcher());
 	private final Broadcaster<byte[]>  bytes    = Broadcaster.<byte[]> create(Environment.cachedDispatcher());
@@ -72,14 +72,29 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 
 	private void dispatchSingle(Tuple2<Long, Message> tuple) {
 		final Message msg = tuple.getT2();
-		log.info("{}", tuple.getT1());
-		if (msg.getType() == Message.HELLO) {
-			onHello(msg);
-		} else if (msg.getType() == Message.SUBSCRIBE) {
-			onSubscribe(msg);
-		} else if (msg.getType() == Message.PUBLISH) {
-			onPublish(msg);
-		}
+		guardErrors(msg, unused -> {
+			log.info("{}", tuple.getT1());
+			
+			if (engine == null) {
+				throw new IllegalStateException("No engine");
+			}
+			
+			if (sessionId < 0 && msg.getType() != Message.HELLO) {
+				throw new IllegalStateException("First message must be HELLO");
+			}
+			
+			if (msg.getType() == Message.ERROR) {
+				getSession().close();
+			} else if (msg.getType() == Message.HELLO) {
+				onHello(msg);
+			} else if (msg.getType() == Message.SUBSCRIBE) {
+				onSubscribe(msg);
+			} else if (msg.getType() == Message.PUBLISH) {
+				onPublish(msg);
+			} else if (msg.getType() == Message.REGISTER) {
+				onRegister(msg);
+			}
+		});
 	}
 	
 	public void guardErrors(Message msg, Consumer<Message> func) {
@@ -98,7 +113,12 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	
 	public void onHello(final Message msg) {
 		guardErrors(msg, unused-> {
+			if (sessionId < 0) {
+				throw new IllegalStateException("already welcome");
+			}
+			
 			final Message reply = new Message(Message.WELCOME, msg);
+			reply.setSessionId(sessionId = engine.createSession(msg.getUri()));
 			reply.setDetails(WAMP_ROUTER_CAPABILITIES);
 			queueReply(reply);
 		});
@@ -122,12 +142,19 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 	}
 
 	public void onPublish(final Message msg) {
-		long pubId = engine.publish(sessionId, msg.getUri(), msg);
-		if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
-			final Message reply = new Message(Message.PUBLISHED, msg);
-			reply.setPublicationId(pubId);
-			queueReply(reply);
-		}
+		guardErrors(msg, unused -> {
+			long pubId = engine.publish(sessionId, msg.getUri(), msg);
+			if (msg.getDetails().has("acknowledge") && msg.getDetails().get("acknowledge").asBoolean()) {
+				final Message reply = new Message(Message.PUBLISHED, msg);
+				reply.setPublicationId(pubId);
+				queueReply(reply);
+			}
+		});
+	}
+	
+	private void onRegister(Message msg) {
+		guardErrors(msg, unused -> {
+		});
 	}
 
 	@Override

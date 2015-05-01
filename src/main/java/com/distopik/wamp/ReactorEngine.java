@@ -108,6 +108,7 @@ public class ReactorEngine implements Engine {
 		return checkSession(sessionId, s -> {
 			long subId = s.subscriptionId++;
 			s.subscriptions.put(subId, s.realm.eventBus.<Event<Message>>on($(uri), event -> {
+				event.getData().setSubscriptionId(subId);
 				if (!callme.notify(event.getData())) {
 					checkSubscription(s, subId, sub -> {
 						sub.cancel();
@@ -136,6 +137,7 @@ public class ReactorEngine implements Engine {
 	public long publish(long sessionId, String uri, Message arguments) {
 		return checkSession(sessionId, s -> {
 			long pubId = s.publicationId++;
+			arguments.setPublicationId(pubId);
 			s.realm.eventBus.notify(uri, new Event<>(arguments));
 			return pubId;
 		});
