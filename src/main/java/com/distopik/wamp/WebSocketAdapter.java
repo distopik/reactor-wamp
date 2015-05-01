@@ -103,6 +103,8 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 				onPublish(msg);
 			} else if (msg.getType() == REGISTER) {
 				onRegister(msg);
+			} else if (msg.getType() == CALL) {
+				onCall(msg);
 			} else if (msg.getType() == YIELD) {
 				onYield(msg);
 			}
@@ -184,6 +186,21 @@ public class WebSocketAdapter extends org.eclipse.jetty.websocket.api.WebSocketA
 			Message registered = new Message(REGISTERED, msg);
 			registered.setRegistrationId(regId);
 			queueReply(registered);
+		});
+	}
+	
+	private void onCall(Message msg) {
+		guardErrors(msg, unused -> {
+			engine.call(sessionId, msg.getUri(), msg, args -> {
+				if (isConnected()) {
+					Message result = new Message(RESULT, args);
+					result.setRequestId(msg.getRequestId());
+					queueReply(result);
+					return true;
+				} else {
+					return false;
+				}
+			});
 		});
 	}
 	
